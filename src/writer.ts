@@ -168,39 +168,24 @@ class HiFileWriter implements IHiWriter {
 }
 
 class HiBufferWriter implements IHiWriter {
-	private buffer: Buffer;
-	private endian: 'BE' | 'LE';
-	private chunkSize: number;
-	private position: number = 0;
-	private size: number = 0;
+	protected buffer: Buffer;
+	protected endian: 'BE' | 'LE';
+	protected position: number = 0;
 
-	constructor(buffer?: Buffer, endian?: 'BE' | 'LE', chunkSize?: number) {
+	constructor(buffer: Buffer, endian?: 'BE' | 'LE') {
+		this.buffer = buffer;
 		this.endian = endian ?? 'BE';
-		this.chunkSize = chunkSize ?? 1024;
-		if (buffer) {
-			this.buffer = buffer;
-			this.position = this.size = this.buffer.length;
-		} else {
-			this.buffer = Buffer.alloc(1024);
-		}
 	}
 
-	private grow(size: number) {
-		// TODO: test
-		while (this.position + size > this.buffer.length) {
-			this.buffer = Buffer.concat([this.buffer, Buffer.alloc(this.chunkSize)]);
-		}
-
-		if (this.position + size > this.size) {
-			this.size = this.position + size;
+	protected checkLength(byteCount: number) {
+		if (this.position + byteCount > this.buffer.length) {
+			throw new Error(`buffer isn't large enough: overflow of ${byteCount} bytes`);
 		}
 	}
-
-
 
 	string(value: string, encoding: BufferEncoding = 'utf8', offset: number = this.position) {
 		const buffer = Buffer.from(value, encoding);
-		this.grow(buffer.length);
+		this.checkLength(buffer.length);
 		this.buffer.fill(buffer, offset, offset + buffer.length);
 		this.position = offset + buffer.length;
 		return buffer.length;
@@ -208,14 +193,14 @@ class HiBufferWriter implements IHiWriter {
 
 	int(value: number, size: number, offset: number = this.position) {
 		validateInt(value, size);
-		this.grow(size);
+		this.checkLength(size);
 		this.position = this.endian === 'BE' ? this.buffer.writeIntBE(value, offset, size) : this.buffer.writeIntLE(value, offset, size);
 		return size;
 	}
 
 	uint(value: number, size: number, offset: number = this.position) {
 		validateUInt(value, size);
-		this.grow(size);
+		this.checkLength(size);
 		this.position = this.endian === 'BE' ? this.buffer.writeUIntBE(value, offset, size) : this.buffer.writeUIntLE(value, offset, size);
 		return size;
 	}
@@ -233,32 +218,32 @@ class HiBufferWriter implements IHiWriter {
 	uint32(value: number, offset: number = this.position) { return this.uint(value, 4, offset); }
 
 	int64(value: bigint, offset: number = this.position) {
-		this.grow(8);
+		this.checkLength(8);
 		this.position = this.endian === 'BE' ? this.buffer.writeBigInt64BE(value, offset) : this.buffer.writeBigInt64LE(value, offset);
 		return 8;
 	}
 
 	uint64(value: bigint, offset: number = this.position) {
-		this.grow(8);
+		this.checkLength(8);
 		this.position = this.endian === 'BE' ? this.buffer.writeBigUInt64BE(value, offset) : this.buffer.writeBigUInt64LE(value, offset);
 		return 8;
 	}
 
 	float(value: number, offset: number = this.position) {
-		this.grow(4);
+		this.checkLength(4);
 		this.position = this.endian === 'BE' ? this.buffer.writeFloatBE(value, offset) : this.buffer.writeFloatLE(value, offset);
 		return 4;
 	}
 
 	double(value: number, offset: number = this.position) {
-		this.grow(8);
+		this.checkLength(8);
 		this.position = this.endian === 'BE' ? this.buffer.writeDoubleBE(value, offset) : this.buffer.writeDoubleLE(value, offset);
 		return 8;
 	}
 
 	bytes(value: Buffer, offset: number = this.position) {
 		// TODO: test
-		this.grow(value.length);
+		this.checkLength(value.length);
 		this.buffer.fill(value, offset, offset + value.length);
 		this.position = offset + value.length;
 		return value.length;
@@ -289,17 +274,63 @@ class HiBufferWriter implements IHiWriter {
 	getPosition() {
 		return this.position;
 	}
+
+	getBuffer() {
+		return this.buffer;
+	}
 }
 
-export function createWriter(filePath: string, endian?: 'BE' | 'LE'): Promise<HiFileWriter>;
-export function createWriter(handle: FileHandle, endian?: 'BE' | 'LE'): HiFileWriter;
-export function createWriter(buffer?: Buffer, endian?: 'BE' | 'LE', chunkSize?: number): HiBufferWriter;
-export function createWriter(arg1?: string | FileHandle | Buffer, arg2?: 'BE' | 'LE', arg3?: number) {
-	if (arg1 === undefined || Buffer.isBuffer(arg1)) {
-		return new HiBufferWriter(arg1, arg2, arg3);
-	} else if (typeof arg1 === 'string') {
-		return open(arg1).then(x => new HiFileWriter(x, arg2));
+class HiGrowableBufferWriter extends HiBufferWriter implements IHiWriter {
+	private chunkSize: number;
+	private size: number = 0;
+
+	constructor(endian?: 'BE' | 'LE', chunkSize?: number) {
+		super(Buffer.alloc(chunkSize ?? 1024), endian);
+		this.chunkSize = chunkSize ?? 1024;
+	}
+
+	protected checkLength(byteCount: number) {
+		// TODO: test
+		while (this.position + byteCount > this.buffer.length) {
+			this.buffer = Buffer.concat([this.buffer, Buffer.alloc(this.chunkSize)]);
+		}
+
+		if (this.position + byteCount > this.size) {
+			this.size = this.position + byteCount;
+		}
+	}
+
+	getSize() {
+		return this.size;
+	}
+
+	getBuffer() {
+		return Buffer.from(this.buffer.subarray(0, this.size));
+	}
+}
+
+type Args1 = [filePath: string, options?: { endian?: 'BE' | 'LE', }];
+type Args2 = [handle: FileHandle, options?: { endian?: 'BE' | 'LE', }];
+type Args3 = [options: { fixedSize: number, endian?: 'BE' | 'LE' }];
+type Args4 = [options?: { chunkSize?: number, endian?: 'BE' | 'LE' }];
+
+export function createWriter(...args: Args1): Promise<HiFileWriter>;
+export function createWriter(...args: Args2): HiFileWriter;
+export function createWriter(...args: Args3): HiBufferWriter;
+export function createWriter(...args: Args3): HiGrowableBufferWriter;
+export function createWriter(): HiGrowableBufferWriter;
+export function createWriter(...args: Args1 | Args2 | Args3 | Args4) {
+	if (typeof args[0] === 'string') {
+		const [a0, a1] = args as Args1;
+		return open(a0).then(x => new HiFileWriter(x, a1?.endian));
+	} else if (args[0] !== undefined && !('fixedSize' in args[0])) {
+		const [a0, a1] = args as Args2;
+		return new HiFileWriter(a0, a1?.endian);
+	} else if (args[0] !== undefined && 'fixedSize' in args[0]) {
+		const [a0] = args as Args3;
+		return new HiBufferWriter(Buffer.alloc(a0.fixedSize), a0.endian);
 	} else {
-		return new HiFileWriter(arg1, arg2);
+		const [a0] = args as Args4;
+		return new HiGrowableBufferWriter(a0?.endian, a0?.chunkSize);
 	}
 }

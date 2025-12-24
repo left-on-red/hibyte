@@ -1,27 +1,50 @@
 import { FileHandle, open } from "fs/promises";
 
-export interface IHiReader {
-	string(length: number, encoding: BufferEncoding, offset: number): string | Promise<string>;
-	int(length: number, offset: number): number | Promise<number>;
-	uint(length: number, offset: number): number | Promise<number>;
-	int8(length: number): number | Promise<number>;
-	uint8(length: number): number | Promise<number>;
-	int16(length: number): number | Promise<number>;
-	uint16(length: number): number | Promise<number>;
-	int32(length: number): number | Promise<number>;
-	uint32(length: number): number | Promise<number>;
-	int64(length: number): bigint | Promise<bigint>;
-	uint64(length: number): bigint | Promise<bigint>;
-	float(offset: number): number | Promise<number>;
-	double(offset: number): number | Promise<number>;
-	bytes(length: number, offset: number): Buffer | Promise<Buffer>;
+export interface IHiFileReader {
+	string(length: number, encoding?: BufferEncoding, offset?: number): Promise<string>;
+	int(length: number, offset?: number): Promise<number>;
+	uint(length: number, offset?: number): Promise<number>;
+	int8(offset?: number): Promise<number>;
+	uint8(offset?: number): Promise<number>;
+	int16(offset?: number): Promise<number>;
+	uint16(offset?: number): Promise<number>;
+	int32(offset?: number): Promise<number>;
+	uint32(offset?: number): Promise<number>;
+	int64(offset?: number): Promise<bigint>;
+	uint64(offset?: number): Promise<bigint>;
+	float(offset?: number): Promise<number>;
+	double(offset?: number): Promise<number>;
+	bytes(length: number, offset?: number): Promise<Buffer>;
 
 	seek(offset: number): void;
 	setPosition(position: number): void;
 	getPosition(): number;
+	getSize(): Promise<number>;
 }
 
-class HiFileReader implements IHiReader {
+export interface IHiBufferReader {
+	string(length: number, encoding?: BufferEncoding, offset?: number): string;
+	int(length: number, offset?: number): number;
+	uint(length: number, offset?: number): number;
+	int8(offset?: number): number;
+	uint8(offset?: number): number;
+	int16(offset?: number): number;
+	uint16(offset?: number): number;
+	int32(offset?: number): number;
+	uint32(offset?: number): number;
+	int64(offset?: number): bigint;
+	uint64(offset?: number): bigint;
+	float(offset?: number): number;
+	double(offset?: number): number;
+	bytes(length: number, offset?: number): Buffer;
+
+	seek(offset: number): void;
+	setPosition(position: number): void;
+	getPosition(): number;
+	getSize(): number;
+}
+
+class HiFileReader implements IHiFileReader {
 	private handle: FileHandle;
 	private endian: 'BE' | 'LE';
 	private position: number;
@@ -111,9 +134,13 @@ class HiFileReader implements IHiReader {
 	getPosition() {
 		return this.position;
 	}
+
+	async getSize() {
+		return (await this.handle.stat()).size;
+	}
 }
 
-class HiBufferReader implements IHiReader {
+class HiBufferReader implements IHiBufferReader {
 	buffer: Buffer;
 	endian: 'BE' | 'LE';
 	private position: number;
@@ -208,6 +235,10 @@ class HiBufferReader implements IHiReader {
 
 	getPosition() {
 		return this.position;
+	}
+
+	getSize() {
+		return this.buffer.length;
 	}
 }
 

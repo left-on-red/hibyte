@@ -2,7 +2,7 @@
 	"name": "hibyte",
 	"version": "1.0.0",
 	"description": "",
-	"main": "./dist/index.cjs",
+	"main": "./src/index.ts",
 	"module": "./dist/index.mjs",
 	"types": "./dist/index.d.cts",
 	"exports": {
